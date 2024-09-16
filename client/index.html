@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HL7 message sender</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900&display=swap"
+      rel="stylesheet"
+    />
+    <script type="module">
+      import { io } from "https://cdn.socket.io/4.3.2/socket.io.esm.min.js";
+      let socketServer = "http://localhost:3000";
+      const socket = io();
+
+      const form = document.getElementById("form");
+      const configForm = document.getElementById("formConfigServer");
+      const logs = document.getElementById("logs");
+      const endServerBtn = document.getElementById("endServer");
+      const configPathBtn = document.getElementById("savePathConfig");
+
+      const portInput = document.getElementById("port");
+      const hostInput = document.getElementById("host");
+      const pathInput = document.getElementById("savePath");
+      const hl7MessageInput = document.getElementById("HL7message");
+
+      function capitalizeFirstLetter(string) {
+        return string.charAt(0).toUpperCase() + string.slice(1);
+      }
+
+      socket.on("message", (data) => {
+        portInput.value = data.PORT;
+        hostInput.value = data.HOST;
+        pathInput.value = (data.savePath).replace(/\\/g, "/").replace('data','.');
+      });
+      socket.on("hl7 message", (msg) => {
+        const { data } = msg;
+
+        function genericSegmentTemplate(segment) {
+          return Object.keys(segment)
+            .map((key, index) => {
+              if (key !== "message_type" && key !== "segment_name") {
+                return `
+              <strong>
+                ${capitalizeFirstLetter(key)}
+               </strong> : <span>${Object.values(segment)[index]}</span>
+
+              `;
+              }
+
+              return ""; // Si no cumple la condición, no retorna nada
+            })
+            .join("");
+        }
+
+        function OBXTemplate(OBXresults) {
+          return `
+                    <table>
+                        <thead>
+                        <tr class="OBX_segment" >
+                            ${Object.keys(OBXresults[0])
+                              .map(
+                                (key) =>
+                                  `<th>${capitalizeFirstLetter(key)}</th>`
+                              )
+                              .join("")}
+                        </tr>
+                        </thead>
+                        <tbody>
+                        ${OBXresults.map((e) => {
+                          return `
+                            <tr class="OBX_segment">
+                                ${Object.values(e)
+                                  .map((val) => `<td>${val}</td>`)
+                                  .join("")}
+                            </tr>`;
+                        }).join("")}
+                        </tbody>
+                    </table>`;
+        }
+
+        const elements = Object.values(data).map(
+          (e) => `
+        <li class="parsedHl7"   >
+            ${e.message_type} - ${e.segment_name}
+
+            
+            <div >${
+              e.message_type == "OBX"
+                ? OBXTemplate(e.results)
+                : genericSegmentTemplate(e)
+            }</div>
+        
+        </li>`
+        );
+
+        logs.insertAdjacentHTML(
+          "beforeEnd",
+          `
+          <div >
+            <strong>Information Received</strong>
+            
+            <ul>
+                ${elements.join("\n")}
+            </ul>
+          </div>
+        `
+        );
+      });
+
+      function configServer({ host, port, savePath }) {
+        // Enviar nueva configuración
+        socket.emit("config", {
+          newHost: host ?? undefined,
+          newPort: port ?? undefined,
+          //newSavePath: savePath ?? undefined,
+        });
+      }
+
+      // Escuchar cuando se actualice la configuración
+      socket.on("configUpdated", (data) => {
+        console.log("Configuración actualizada:", data);
+      });
+
+      // Escuchar notificación de reinicio del servidor
+      socket.on("serverRestarting", (data) => {
+        console.log(data.message);
+
+        // Redirect to a new URL
+
+        setTimeout(() => {
+          window.location.href = `http://${data.HOST}:${data.PORT}/`;
+        }, 1000);
+      });
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        if (hl7MessageInput.value) {
+          socket.emit("hl7 message", hl7MessageInput.value);
+          hl7MessageInput.value = "";
+        }
+      });
+
+      configForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        configServer({
+          host: hostInput.value,
+          port: portInput.value,
+          savePath: pathInput.value,
+        });
+      });
+
+      endServerBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+
+        socket.emit("stopServer", {
+          message: "End server",
+        });
+      });
+
+      configPathBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+
+        // Enviar nueva configuración
+        socket.emit("setPath", {
+          newSavePath: pathInput.value,
+        });
+      });
+    </script>
+
+    <style>
+      *,
+      *::after,
+      *::before {
+        box-sizing: border-box;
+        padding: 0;
+      }
+      :root {
+        color-scheme: light dark;
+      }
+
+      .parsedHl7 {
+        border: #cd3434 solid 1px;
+        padding: 1rem;
+        border-radius: 8px;
+      }
+      body {
+        font-family: "Poppins", sans-serif;
+      }
+
+      main {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1.5rem;
+        padding: 0 4rem;
+      }
+
+      #controls {
+        width: 50%;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        height: 100%;
+      }
+
+      .hl7_segment {
+        padding: 0.5rem;
+        border: #db6a6a solid 1px;
+        border-radius: 12px;
+        margin-bottom: 1rem;
+      }
+
+      #logs {
+        list-style-type: none;
+        width: 40%;
+        overflow-y: scroll;
+        height: 90vh;
+        scroll-behavior: smooth;
+        background-color: rgb(54, 54, 54);
+        border-radius: 12px;
+        box-shadow: 0 24px 32px -8px rgba(0, 0, 0, 8%);
+      }
+
+      #logs > h2 {
+        padding: 0 24px;
+      }
+
+      #logs > div {
+        padding: 1rem;
+      }
+
+      #logs > div > ul {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      #logs > div:nth-child(odd) {
+        background: #414141;
+      }
+
+      #form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        height: 70vh;
+      }
+
+      #HL7message {
+        height: 100%;
+      }
+
+      textarea {
+        overflow: hidden;
+        resize: none;
+        border-radius: 16px;
+        padding: 1rem;
+        font-size: 1.3rem;
+      }
+
+      fieldset {
+        border: none;
+        padding: 0;
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      fieldset > div {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      fieldset > div > input {
+        width: 100%;
+      }
+
+      input[type="text"] {
+        border-radius: 3px;
+        font-size: medium;
+      }
+
+      button {
+        padding: 0.5rem;
+        border-color: transparent;
+        border-radius: 3px;
+      }
+
+      ul {
+        list-style-type: none;
+      }
+      button:active {
+        border-color: aqua;
+      }
+
+      .btn {
+        font-weight: 500;
+        font-size: large;
+      }
+
+      .danger {
+        background-color: #cd3434;
+      }
+      .OBX_segment {
+        display: grid;
+        border-bottom: 1px solid #7c7c7c;
+        grid-template-columns: repeat(3, 1fr);
+        padding: 0.75rem 0;
+        gap: 1rem;
+      }
+
+      .OBX_segment:nth-last() {
+        border-bottom: none;
+      }
+
+      @media (min-width: 320px) {
+        /* smartphones, iPhone, portrait 480x320 phones */
+        main {
+          flex-direction: column;
+          width: 100%;
+        }
+
+        #logs {
+          width: 100%;
+        }
+      }
+
+      @media (min-width: 1024px) {
+        /* smartphones, iPhone, portrait 480x320 phones */
+        main {
+          flex-direction: row;
+        }
+
+        #logs {
+          width: 40%;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="controls">
+        <form id="formConfigServer">
+          <h3>Configuración de puertos</h3>
+          <fieldset>
+            <div>
+              <label for="host">Host:</label>
+              <input type="text" name="host" id="host" />
+            </div>
+
+            <hr style="height: 1rem" />
+            <div>
+              <label for="port">Puerto:</label>
+              <input type="text" name="port" id="port" />
+            </div>
+          </fieldset>
+
+          <fieldset>
+            <div>
+              <label for="savePath">Ruta:</label>
+              <input type="text" name="savePath" id="savePath" />
+              <button id="savePathConfig">Guardar</button>
+            </div>
+          </fieldset>
+          <br />
+          <div>
+            <button type="submit">Configurar</button>
+
+            <button type="button" id="endServer" class="danger">
+              Cerrar servidor
+            </button>
+          </div>
+        </form>
+
+        <form id="form">
+          <textarea id="HL7message"></textarea>
+          <button class="btn" type="submit">Enviar</button>
+        </form>
+      </section>
+
+      <section id="logs">
+        <h2>Logs history</h2>
+      </section>
+    </main>
+  </body>
+</html>

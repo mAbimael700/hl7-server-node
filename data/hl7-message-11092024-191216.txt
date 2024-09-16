@@ -1,0 +1,1 @@
+{"MSH":{"message_type":"MSH","segment_name":"Message Header","clave":"20240524133800"}}
